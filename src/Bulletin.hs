@@ -1,13 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main where
+module Bulletin where
 
-import           Control.Applicative     ((<|>))
 import           Control.Lens            ((^.))
-import           Control.Monad           (when)
 import           Control.Monad.Except    (ExceptT, MonadError (throwError),
                                           runExceptT)
 import           Control.Monad.IO.Class  (MonadIO (liftIO))
+import           Data.Bifunctor          (second)
+import           Data.ByteString         (ByteString)
+import qualified Data.ByteString.Char8   as BS8
 import qualified Data.ByteString.Lazy    as BL
 import           Data.Foldable           (for_)
 import           Data.List               (intercalate)
@@ -17,10 +18,12 @@ import           Data.Maybe              (fromMaybe)
 import           Data.Semigroup          (Min (Min, getMin))
 import           Data.Text               (Text)
 import qualified Data.Text               as Text
+import qualified Data.Text.Encoding      as Text
 import qualified Data.Text.IO            as Text
 import qualified Data.Text.Lazy          as TL
 import qualified Data.Text.Lazy.Encoding as TL
 import qualified Data.Time               as Time
+import qualified Network.HTTP.Client     as Http
 import qualified Network.Wreq            as Wreq
 import           System.Directory        (setCurrentDirectory)
 import           System.Environment      (getArgs)
@@ -37,15 +40,14 @@ import qualified Text.Pandoc.Transforms  as Pandoc
 import qualified Text.Pandoc.UTF8        as Pandoc
 import           Text.Pandoc.Walk        (query)
 import qualified Text.Pandoc.Writers     as Pandoc
-import qualified Toml
-import           Toml                    (TomlCodec, TomlDecodeError, (.=))
+import           Toml                    (TomlDecodeError)
 
 data Bulletin templ doc = Bulletin
   { bulletinTitle         :: !Text
   , bulletinDate          :: !Time.Day
   , bulletinExtra         :: !(Map Text Text)
   , bulletinOutputs       :: ![Output templ]
-  , bulletinContributions :: [Contribution doc]
+  , bulletinContributions :: ![Contribution doc]
   } deriving (Show)
 
 mapBulletin :: (Output t -> Output t') -> (Contribution d -> Contribution d') -> Bulletin t d -> Bulletin t' d'
@@ -67,25 +69,11 @@ mapBulletinM f g bulletin = do
     , bulletinContributions = contributions
     }
 
-bulletinCodec :: TomlCodec (Bulletin FilePath Input)
-bulletinCodec = Bulletin
-  <$> Toml.text                             "title"        .= bulletinTitle
-  <*> Toml.day                              "date"         .= bulletinDate
-  <*> Toml.tableMap Toml._KeyText Toml.text "extra"        .= bulletinExtra
-  <*> Toml.list outputCodec                 "output"       .= bulletinOutputs
-  <*> Toml.list contributionCodec           "contribution" .= bulletinContributions
-
 data Output templ = Output
   { outputFilename :: !FilePath
   , outputFormat   :: !OutputFormat
   , outputTemplate :: templ
   } deriving (Show, Functor)
-
-outputCodec :: TomlCodec (Output FilePath)
-outputCodec = Output
-  <$> Toml.string "file"     .= outputFilename
-  <*> outputFormatCodec      .= outputFormat
-  <*> Toml.string "template" .= outputTemplate
 
 data OutputFormat
   = OutputFormat Text
@@ -94,33 +82,6 @@ data OutputFormat
     -- ^ PDF output with specified compiler (supported by 'Pandoc.makePDF')
   | OutputFormatUnspecified
   deriving (Show)
-
-matchOutputFormat :: OutputFormat -> Maybe Text
-matchOutputFormat = \case
-  OutputFormat format -> Just format
-  _ -> Nothing
-
-matchOutputFormatPdf :: OutputFormat -> Maybe Text
-matchOutputFormatPdf = \case
-  OutputFormatPdf compiler -> Just compiler
-  _ -> Nothing
-
-matchOutputFormatUnspecified :: OutputFormat -> Maybe ()
-matchOutputFormatUnspecified = \case
-  OutputFormatUnspecified -> Just ()
-  _ -> Nothing
-
-outputFormatCodec :: TomlCodec OutputFormat
-outputFormatCodec
-   =  Toml.dimatch matchOutputFormatPdf OutputFormatPdf pdf
-  <|> Toml.dimatch matchOutputFormat OutputFormat otherFormat
-  <|> pure OutputFormatUnspecified
-  where
-    pdf = Toml.hardcoded "pdf" Toml._Text "format" *> Toml.text "compiler"
-    validateOtherFormat format = if format == "pdf"
-      then Left "PDF output format should be accompanied by compiler option"
-      else Right format
-    otherFormat = Toml.validate validateOtherFormat Toml._Text "format"
 
 data Contribution doc = Contribution
   { contributionAuthor   :: !Text
@@ -133,49 +94,17 @@ mapContribution' :: (Contribution a -> b) -> Contribution a -> Contribution b
 mapContribution' f contribution = contribution
   { contributionDocument = f contribution }
 
-contributionCodec :: TomlCodec (Contribution Input)
-contributionCodec = Contribution
-  <$> Toml.text   "author" .= contributionAuthor
-  <*> Toml.text   "title"  .= contributionTitle
-  <*> Toml.day    "date"   .= contributionDate
-  <*> inputCodec           .= contributionDocument
-
 data Input = Input
   { inputSource :: !Source
   , inputFormat :: !(Maybe Text)
   } deriving (Show)
 
-inputCodec :: TomlCodec Input
-inputCodec = Input
-  <$> sourceCodec                          .= inputSource
-  <*> Toml.dioptional (Toml.text "format") .= inputFormat
-
 data Source
   = SourceFile !FilePath
   | SourceUrl !Text
   | SourceGoogleDocs !Text
+  | SourceGoogleDrive !Text
   deriving (Show)
-
-matchSourceFile :: Source -> Maybe FilePath
-matchSourceFile = \case
-  SourceFile file -> Just file
-  _ -> Nothing
-
-matchSourceUrl :: Source -> Maybe Text
-matchSourceUrl = \case
-  SourceUrl url -> Just url
-  _ -> Nothing
-
-matchSourceGoogleDocs :: Source -> Maybe Text
-matchSourceGoogleDocs = \case
-  SourceGoogleDocs docId -> Just docId
-  _ -> Nothing
-
-sourceCodec :: TomlCodec Source
-sourceCodec
-   =  Toml.dimatch matchSourceFile SourceFile (Toml.string "file")
-  <|> Toml.dimatch matchSourceUrl SourceUrl (Toml.text "url")
-  <|> Toml.dimatch matchSourceGoogleDocs SourceGoogleDocs (Toml.text "google-docs")
 
 data BulletinError
   = BulletinUnsupportedInputFormat Input
@@ -186,6 +115,7 @@ data BulletinError
   | BulletinTemplateError String
   | BulletinUsageError String
   | BulletinUnsupportedPdfCompiler Text
+  | BulletinCsvParseError String
 
 instance Show BulletinError where
   show = \case
@@ -197,6 +127,7 @@ instance Show BulletinError where
     BulletinTemplateError err -> "Template error: " <> err
     BulletinUsageError err -> "Usage error: " <> err
     BulletinUnsupportedPdfCompiler compiler -> "Unsupported PDF compiler: " <> Text.unpack compiler
+    BulletinCsvParseError err -> "CSV parse error: " <> err
 
 newtype BulletinIO a = BulletinIO { unBulletinIO :: ExceptT BulletinError IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadError BulletinError)
@@ -217,55 +148,68 @@ liftPandocIO mx = do
   res <- liftIO $ runIO mx
   liftEither' BulletinPandocError res
 
-defaultGoogleDocsFormat :: Text
-defaultGoogleDocsFormat  = "docx"
-
-formatFromSource :: Source -> Maybe Pandoc.FlavoredFormat
-formatFromSource = \case
-  SourceFile filename -> Pandoc.formatFromFilePaths [filename]
-  SourceUrl url -> Pandoc.formatFromFilePaths [Text.unpack url]
-  SourceGoogleDocs _ -> Just $ Pandoc.FlavoredFormat
-    { formatName = defaultGoogleDocsFormat
-    , formatExtsDiff = mempty
-    }
-
-formatFromInput :: Input -> BulletinIO Pandoc.FlavoredFormat
-formatFromInput input = case inputFormat input of
-  Nothing     -> liftMaybe (BulletinUnsupportedInputFormat input) $ formatFromSource $ inputSource input
+formatFromInput :: Input -> FilePath -> BulletinIO Pandoc.FlavoredFormat
+formatFromInput input filename = case inputFormat input of
+  Nothing     -> liftMaybe (BulletinUnsupportedInputFormat input) $ Pandoc.formatFromFilePaths [filename]
   Just format -> liftPandocIO $ Pandoc.parseFlavoredFormat format
 
 readUrl :: Text -> BulletinIO BL.ByteString
 readUrl url = liftIO $ (^. Wreq.responseBody) <$> Wreq.get (Text.unpack url)
 
-readGoogleDocs :: Text -> Maybe Text -> BulletinIO BL.ByteString
+defaultGoogleDocsFormat :: Text
+defaultGoogleDocsFormat  = "docx"
+
+readGoogleDocs :: Text -> Maybe Text -> BulletinIO (FilePath, BL.ByteString)
 readGoogleDocs docId format = do
-  readUrl $ "https://docs.google.com/document/d/" <> docId <> "/export?format=" <> fromMaybe defaultGoogleDocsFormat format
+  let url = "https://docs.google.com/document/d/" <> docId <> "/export?format=" <> fromMaybe defaultGoogleDocsFormat format
+  response <- liftIO $ Wreq.get $ Text.unpack url
+  let contentDisposition = response ^. Wreq.responseHeader "Content-Disposition"
+  let filename = Pandoc.toString $ BS8.takeWhile (/= '"') $ BS8.drop 1 $ BS8.dropWhile (/= '"') contentDisposition
+  let body = response ^. Wreq.responseBody
+  pure (filename, body)
 
-readInputLazy :: Input -> BulletinIO BL.ByteString
-readInputLazy input = case inputSource input of
-  SourceFile filename    -> liftPandocIO $ readFileLazy filename
-  SourceUrl url          -> readUrl url
-  SourceGoogleDocs docId -> readGoogleDocs docId (inputFormat input)
+readGoogleDrive :: Text -> Maybe Text -> BulletinIO (FilePath, BL.ByteString)
+readGoogleDrive fileId format = do
+  let openUrl = "https://drive.google.com/open?id=" <> fileId
+  openResponse <- liftIO $ Wreq.customHistoriedMethod "GET" $ Text.unpack openUrl
 
-readInput :: Input -> BulletinIO Text
-readInput = fmap (TL.toStrict . TL.decodeUtf8) . readInputLazy
+  let url = case Http.host (openResponse ^. Wreq.hrFinalRequest) of
+        "docs.google.com" -> "https://docs.google.com/document/d/" <> fileId <> "/export?format=" <> fromMaybe defaultGoogleDocsFormat format
+        -- For ‘regular’ files (not in a Google format), the host is "drive.google.com"
+        _ -> "https://drive.usercontent.google.com/uc?id=" <> fileId <> "&export=download"
 
-readPandoc :: Pandoc.Reader PandocIO -> Pandoc.Extensions -> Contribution Input -> BulletinIO (Contribution Pandoc)
+  response <- liftIO $ Wreq.get $ Text.unpack url
+  let contentDisposition = response ^. Wreq.responseHeader "Content-Disposition"
+  let filename = Pandoc.toString $ BS8.takeWhile (/= '"') $ BS8.drop 1 $ BS8.dropWhile (/= '"') contentDisposition
+  let body = response ^. Wreq.responseBody
+  pure (filename, body)
+
+readInputLazy :: Input -> BulletinIO (Pandoc.FlavoredFormat, BL.ByteString)
+readInputLazy input = do
+  (filename, content) <- case inputSource input of
+    SourceFile filename      -> liftPandocIO $ (filename,) <$> readFileLazy filename
+    SourceUrl url            -> (Text.unpack url,) <$> readUrl url
+    SourceGoogleDocs docId   -> readGoogleDocs docId $ inputFormat input
+    SourceGoogleDrive fileId -> readGoogleDrive fileId $ inputFormat input
+  format <- formatFromInput input filename
+  pure (format, content)
+
+readPandoc :: Pandoc.Reader PandocIO -> Pandoc.Extensions -> Contribution BL.ByteString -> BulletinIO (Contribution Pandoc)
 readPandoc reader extensions contribution = do
   let input = contributionDocument contribution
   let readerOptions = def { readerExtensions = extensions }
   doc <- case reader of
-    Pandoc.ByteStringReader r -> liftPandocIO . r readerOptions =<< readInputLazy input
-    Pandoc.TextReader r -> liftPandocIO . r readerOptions =<< readInput input
+    Pandoc.ByteStringReader r -> liftPandocIO $ r readerOptions input
+    Pandoc.TextReader r -> liftPandocIO $ r readerOptions $ TL.toStrict $ TL.decodeUtf8 input
   pure $ doc <$ contribution
 
--- | Read a contribution and parse it into Pandoc"s AST.
+-- | Read a contribution and parse it into Pandoc's AST.
 readContribution :: Contribution Input -> BulletinIO (Contribution Pandoc)
 readContribution contribution = do
   let input = contributionDocument contribution
-  format <- formatFromInput input
+  (format, content) <- readInputLazy input
   (reader, extensions) <- liftPandocIO $ Pandoc.getReader format
-  readPandoc reader extensions contribution
+  readPandoc reader extensions $ content <$ contribution
 
 -- | Obtain the minimal header level from the document, if any headers
 -- are present.
@@ -301,12 +245,6 @@ extractBlocks contribution = case contributionDocument contribution of
 -- contribution ready to be used as part of output.
 processContribution :: Contribution Pandoc -> Contribution Blocks
 processContribution = mapContribution' extractBlocks . fmap correctHeaderLevels
-
--- | Read the bulletin configuration from the given file.
-readBulletinConfig :: FilePath -> BulletinIO (Bulletin FilePath Input)
-readBulletinConfig filename = do
-  res <- Toml.decodeFileEither bulletinCodec filename
-  liftEither' BulletinTomlDecodeError res
 
 -- | Read the contributions specified in the given bulletin
 -- configuration.
@@ -407,16 +345,3 @@ writeOutput doc output = case outputFormat output of
 
 writeOutputs :: Bulletin (Template Text) doc -> Pandoc -> BulletinIO ()
 writeOutputs bulletin doc = for_ (bulletinOutputs bulletin) $ writeOutput doc
-
-main :: IO ()
-main = runBulletinIO $ do
-  args <- liftIO getArgs
-  when (null args) $
-    throwError $ BulletinUsageError "Specify configuration file(s): bulletin <file ...>"
-
-  for_ args $ \configFile -> do
-    bulletinConfig <- readBulletinConfig configFile
-    -- Set directory to that of config file, to deal with paths relative to it.
-    liftIO $ setCurrentDirectory $ takeDirectory configFile
-    bulletin <- readTemplates . processContributions =<< readContributions bulletinConfig
-    writeOutputs bulletin $ compileBulletin bulletin

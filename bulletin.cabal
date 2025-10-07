@@ -54,12 +54,34 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
 
-executable bulletin
+library
+    exposed-modules:  Bulletin
+                    , Bulletin.Toml
+    build-depends:    base
+                    , bytestring
+                    , containers
+                    , directory
+                    , filepath
+                    , http-client
+                    , lens
+                    , mtl
+                    , pandoc
+                    , pandoc-types
+                    , text
+                    , time
+                    , tomland
+                    , unordered-containers
+                    , vector
+                    , wreq
+    hs-source-dirs:   src
+    default-language: GHC2024
+
+executable bulletin-toml
     -- Import common warning flags.
     import:           warnings
 
     -- .hs or .lhs file containing the Main module.
-    main-is:          Main.hs
+    main-is:          Main/Toml.hs
 
     -- Modules included in this executable, other than Main.
     -- other-modules:
@@ -69,6 +91,7 @@ executable bulletin
 
     -- Other library packages from which modules are imported.
     build-depends:    base
+                    , bulletin
                     , bytestring
                     , containers
                     , directory
@@ -81,6 +104,45 @@ executable bulletin
                     , time
                     , tomland
                     , unordered-containers
+                    , vector
+                    , wreq
+
+    -- Directories containing source files.
+    hs-source-dirs:   app
+
+    -- Base language which the package is written in.
+    default-language: GHC2024
+
+executable bulletin-google-form
+    -- Import common warning flags.
+    import:           warnings
+
+    -- .hs or .lhs file containing the Main module.
+    main-is:          Main/GoogleForm.hs
+
+    -- Modules included in this executable, other than Main.
+    -- other-modules:
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+
+    -- Other library packages from which modules are imported.
+    build-depends:    base
+                    , bulletin
+                    , bytestring
+                    , cassava
+                    , containers
+                    , directory
+                    , filepath
+                    , lens
+                    , mtl
+                    , pandoc
+                    , pandoc-types
+                    , text
+                    , time
+                    , tomland
+                    , unordered-containers
+                    , vector
                     , wreq
 
     -- Directories containing source files.
