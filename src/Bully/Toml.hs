@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Bulletin.Toml where
+module Bully.Toml where
 
-import           Bulletin
+import           Bully
 import           Control.Applicative ((<|>))
 import           Data.Text           (Text)
 import qualified Toml

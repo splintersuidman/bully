@@ -3,7 +3,7 @@
 , tomland, unordered-containers, wreq
 }:
 mkDerivation {
-  pname = "bulletin";
+  pname = "bully";
   version = "0.1.0.0";
   src = ./.;
   isLibrary = true;
@@ -16,5 +16,5 @@ mkDerivation {
     base bytestring cassava containers directory filepath lens mtl
     pandoc pandoc-types text time tomland unordered-containers wreq
   ];
-  license = lib.licenses.gpl3Plus;
+  license = lib.meta.getLicenseFromSpdxId "GPL-3.0-or-later";
 }

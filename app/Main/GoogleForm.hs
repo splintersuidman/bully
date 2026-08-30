@@ -2,8 +2,8 @@
 
 module Main where
 
-import           Bulletin
-import           Bulletin.Toml
+import           Bully
+import           Bully.Toml
 import           Control.Monad          (when)
 import           Control.Monad.Except   (MonadError (throwError))
 import           Control.Monad.IO.Class (MonadIO (liftIO))
@@ -73,10 +73,10 @@ newtype GoogleSheet = GoogleSheet Text
 googleSheetCodec :: Toml.Key -> TomlCodec GoogleSheet
 googleSheetCodec = Toml.dimap (\(GoogleSheet sheetId) -> sheetId) GoogleSheet . Toml.text
 
-readGoogleSheet :: GoogleSheet -> BulletinIO BL.ByteString
+readGoogleSheet :: GoogleSheet -> Bully BL.ByteString
 readGoogleSheet (GoogleSheet sheetId) = readUrl $ "https://docs.google.com/spreadsheets/d/" <> sheetId <> "/export?format=csv"
 
-readGoogleSheetContributions :: Form -> GoogleSheet -> BulletinIO [Contribution Input]
+readGoogleSheetContributions :: Form -> GoogleSheet -> Bully [Contribution Input]
 readGoogleSheetContributions form sheet = do
   csv <- readGoogleSheet sheet
   contributions <- liftEither' BulletinCsvParseError $ decodeForm form csv
@@ -94,12 +94,12 @@ configCodec = Config
   <*> Toml.table formCodec "form"  .= configForm
   <*> googleSheetCodec     "sheet" .= configSheet
 
-readConfig :: FilePath -> BulletinIO Config
+readConfig :: FilePath -> Bully Config
 readConfig filename = do
   res <- Toml.decodeFileEither configCodec filename
   liftEither' BulletinTomlDecodeError res
 
-readBulletinConfig :: Config -> BulletinIO (Bulletin FilePath Input)
+readBulletinConfig :: Config -> Bully (Bulletin FilePath Input)
 readBulletinConfig config = do
   contributions <- readGoogleSheetContributions (configForm config) (configSheet config)
   let bulletin = configBulletin config
@@ -108,7 +108,7 @@ readBulletinConfig config = do
     }
 
 main :: IO ()
-main = runBulletinIO $ do
+main = runBully $ do
   args <- liftIO getArgs
   when (null args) $
     throwError $ BulletinUsageError "Specify configuration file(s): bulletin-google-form <file ...>"

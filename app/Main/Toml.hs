@@ -2,8 +2,8 @@
 
 module Main where
 
-import           Bulletin
-import           Bulletin.Toml
+import           Bully
+import           Bully.Toml
 import           Control.Monad          (when)
 import           Control.Monad.Except   (MonadError (throwError))
 import           Control.Monad.IO.Class (MonadIO (liftIO))
@@ -14,13 +14,13 @@ import           System.FilePath        (takeDirectory)
 import qualified Toml
 
 -- | Read the bulletin configuration from the given file.
-readBulletinConfig :: FilePath -> BulletinIO (Bulletin FilePath Input)
+readBulletinConfig :: FilePath -> Bully (Bulletin FilePath Input)
 readBulletinConfig filename = do
   res <- Toml.decodeFileEither bulletinCodec filename
   liftEither' BulletinTomlDecodeError res
 
 main :: IO ()
-main = runBulletinIO $ do
+main = runBully $ do
   args <- liftIO getArgs
   when (null args) $
     throwError $ BulletinUsageError "Specify configuration file(s): bulletin <file ...>"

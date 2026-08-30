@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Bulletin where
+module Bully where
 
 import           Control.Lens            ((^.))
 import           Control.Monad.Except    (ExceptT, MonadError (throwError),
@@ -129,12 +129,12 @@ instance Show BulletinError where
     BulletinUnsupportedPdfCompiler compiler -> "Unsupported PDF compiler: " <> Text.unpack compiler
     BulletinCsvParseError err -> "CSV parse error: " <> err
 
-newtype BulletinIO a = BulletinIO { unBulletinIO :: ExceptT BulletinError IO a }
+newtype Bully a = Bully { unBully :: ExceptT BulletinError IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadError BulletinError)
 
-runBulletinIO :: BulletinIO a -> IO a
-runBulletinIO mx = do
-  res <- runExceptT $ unBulletinIO mx
+runBully :: Bully a -> IO a
+runBully mx = do
+  res <- runExceptT $ unBully mx
   either (die . show) pure res
 
 liftEither' :: MonadError e m => (e' -> e) -> Either e' a -> m a
@@ -143,23 +143,23 @@ liftEither' f = either (throwError . f) pure
 liftMaybe :: MonadError e m => e -> Maybe a -> m a
 liftMaybe err = maybe (throwError err) pure
 
-liftPandocIO :: PandocIO a -> BulletinIO a
+liftPandocIO :: PandocIO a -> Bully a
 liftPandocIO mx = do
   res <- liftIO $ runIO mx
   liftEither' BulletinPandocError res
 
-formatFromInput :: Input -> FilePath -> BulletinIO Pandoc.FlavoredFormat
+formatFromInput :: Input -> FilePath -> Bully Pandoc.FlavoredFormat
 formatFromInput input filename = case inputFormat input of
   Nothing     -> liftMaybe (BulletinUnsupportedInputFormat input) $ Pandoc.formatFromFilePaths [filename]
   Just format -> liftPandocIO $ Pandoc.parseFlavoredFormat format
 
-readUrl :: Text -> BulletinIO BL.ByteString
+readUrl :: Text -> Bully BL.ByteString
 readUrl url = liftIO $ (^. Wreq.responseBody) <$> Wreq.get (Text.unpack url)
 
 defaultGoogleDocsFormat :: Text
 defaultGoogleDocsFormat  = "docx"
 
-readGoogleDocs :: Text -> Maybe Text -> BulletinIO (FilePath, BL.ByteString)
+readGoogleDocs :: Text -> Maybe Text -> Bully (FilePath, BL.ByteString)
 readGoogleDocs docId format = do
   let url = "https://docs.google.com/document/d/" <> docId <> "/export?format=" <> fromMaybe defaultGoogleDocsFormat format
   response <- liftIO $ Wreq.get $ Text.unpack url
@@ -168,7 +168,7 @@ readGoogleDocs docId format = do
   let body = response ^. Wreq.responseBody
   pure (filename, body)
 
-readGoogleDrive :: Text -> Maybe Text -> BulletinIO (FilePath, BL.ByteString)
+readGoogleDrive :: Text -> Maybe Text -> Bully (FilePath, BL.ByteString)
 readGoogleDrive fileId format = do
   let openUrl = "https://drive.google.com/open?id=" <> fileId
   openResponse <- liftIO $ Wreq.customHistoriedMethod "GET" $ Text.unpack openUrl
@@ -184,7 +184,7 @@ readGoogleDrive fileId format = do
   let body = response ^. Wreq.responseBody
   pure (filename, body)
 
-readInputLazy :: Input -> BulletinIO (Pandoc.FlavoredFormat, BL.ByteString)
+readInputLazy :: Input -> Bully (Pandoc.FlavoredFormat, BL.ByteString)
 readInputLazy input = do
   (filename, content) <- case inputSource input of
     SourceFile filename      -> liftPandocIO $ (filename,) <$> readFileLazy filename
@@ -194,7 +194,7 @@ readInputLazy input = do
   format <- formatFromInput input filename
   pure (format, content)
 
-readPandoc :: Pandoc.Reader PandocIO -> Pandoc.Extensions -> Contribution BL.ByteString -> BulletinIO (Contribution Pandoc)
+readPandoc :: Pandoc.Reader PandocIO -> Pandoc.Extensions -> Contribution BL.ByteString -> Bully (Contribution Pandoc)
 readPandoc reader extensions contribution = do
   let input = contributionDocument contribution
   let readerOptions = def { readerExtensions = extensions }
@@ -204,7 +204,7 @@ readPandoc reader extensions contribution = do
   pure $ doc <$ contribution
 
 -- | Read a contribution and parse it into Pandoc's AST.
-readContribution :: Contribution Input -> BulletinIO (Contribution Pandoc)
+readContribution :: Contribution Input -> Bully (Contribution Pandoc)
 readContribution contribution = do
   let input = contributionDocument contribution
   (format, content) <- readInputLazy input
@@ -248,7 +248,7 @@ processContribution = mapContribution' extractBlocks . fmap correctHeaderLevels
 
 -- | Read the contributions specified in the given bulletin
 -- configuration.
-readContributions :: Bulletin templ Input -> BulletinIO (Bulletin templ Pandoc)
+readContributions :: Bulletin templ Input -> Bully (Bulletin templ Pandoc)
 readContributions = mapBulletinM pure readContribution
 
 -- | Process the contributions.
@@ -274,7 +274,7 @@ compileBulletin bulletin
   $ mempty
 
 -- | Read and compile the template file specified in the output.
-readTemplate :: Output FilePath -> BulletinIO (Output (Template Text))
+readTemplate :: Output FilePath -> Bully (Output (Template Text))
 readTemplate output = do
   let templateFile = outputTemplate output
   templateText <- liftIO $ Text.readFile templateFile
@@ -284,16 +284,16 @@ readTemplate output = do
 
 -- | Read and compile the template files specified in the outputs of
 -- the bulletin.
-readTemplates :: Bulletin FilePath doc -> BulletinIO (Bulletin (Template Text) doc)
+readTemplates :: Bulletin FilePath doc -> Bully (Bulletin (Template Text) doc)
 readTemplates = mapBulletinM readTemplate pure
 
-formatFromOutput :: FilePath -> Maybe Text -> BulletinIO Pandoc.FlavoredFormat
+formatFromOutput :: FilePath -> Maybe Text -> Bully Pandoc.FlavoredFormat
 formatFromOutput filename = \case
   Nothing -> liftMaybe (BulletinUnsupportedOutputFormat $ filename) $
     Pandoc.formatFromFilePaths [filename]
   Just format -> liftPandocIO $ Pandoc.parseFlavoredFormat format
 
-writeOutputNormal :: Pandoc -> Output (Template Text) -> Maybe Text -> BulletinIO ()
+writeOutputNormal :: Pandoc -> Output (Template Text) -> Maybe Text -> Bully ()
 writeOutputNormal doc output fmt = do
   format <- formatFromOutput (outputFilename output) fmt
   (writer, extensions) <- liftPandocIO $ Pandoc.getWriter format
@@ -306,7 +306,7 @@ writeOutputNormal doc output fmt = do
     Pandoc.ByteStringWriter w -> liftIO . BL.writeFile (outputFilename output) =<< liftPandocIO (w writerOptions doc)
     Pandoc.TextWriter w       -> liftIO . Text.writeFile (outputFilename output) =<< liftPandocIO (w writerOptions doc)
 
-compilerToWriter :: Text -> BulletinIO (WriterOptions -> Pandoc -> PandocIO Text)
+compilerToWriter :: Text -> Bully (WriterOptions -> Pandoc -> PandocIO Text)
 compilerToWriter compiler = case takeBaseName (Text.unpack compiler) of
   "wkhtmltopdf"  -> pure writeHtml5String
   "pagedjs-cli"  -> pure writeHtml5String
@@ -325,7 +325,7 @@ compilerToWriter compiler = case takeBaseName (Text.unpack compiler) of
   "xelatex"      -> pure writeLaTeX
   _              -> throwError $ BulletinUnsupportedPdfCompiler compiler
 
-writeOutputPdf :: Pandoc -> Output (Template Text) -> Text -> BulletinIO ()
+writeOutputPdf :: Pandoc -> Output (Template Text) -> Text -> Bully ()
 writeOutputPdf doc output compiler = do
   writer <- compilerToWriter compiler
   let writerOptions = def
@@ -337,11 +337,11 @@ writeOutputPdf doc output compiler = do
   liftIO $ BL.writeFile (outputFilename output) out
 
 -- | Write the bulletin as a PDF file, compiling it with Typst.
-writeOutput :: Pandoc -> Output (Template Text) -> BulletinIO ()
+writeOutput :: Pandoc -> Output (Template Text) -> Bully ()
 writeOutput doc output = case outputFormat output of
   OutputFormatUnspecified  -> writeOutputNormal doc output Nothing
   OutputFormat format      -> writeOutputNormal doc output (Just format)
   OutputFormatPdf compiler -> writeOutputPdf doc output compiler
 
-writeOutputs :: Bulletin (Template Text) doc -> Pandoc -> BulletinIO ()
+writeOutputs :: Bulletin (Template Text) doc -> Pandoc -> Bully ()
 writeOutputs bulletin doc = for_ (bulletinOutputs bulletin) $ writeOutput doc

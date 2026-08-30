@@ -1,4 +1,6 @@
-# Bulletin
+# Bully
+
+Bullies documents into bulletins.
 
 Automate assembling regular bulletins with contributions from various sources using various formats.
 

@@ -16,11 +16,11 @@
         pkgs = nixpkgs.legacyPackages.${system};
         haskellPackages = pkgs.haskell.packages.${compiler};
       in {
-        packages.bulletin = haskellPackages.callPackage ./bulletin.nix { };
+        packages.bully = haskellPackages.callPackage ./bully.nix { };
 
-        defaultPackage = self.packages.${system}.bulletin;
+        defaultPackage = self.packages.${system}.bully;
 
-        devShell = self.packages.${system}.bulletin.env.overrideAttrs
+        devShell = self.packages.${system}.bully.env.overrideAttrs
           (oldAttrs: {
             buildInputs = (oldAttrs.buildInputs or [ ])
               ++ (with haskellPackages; [
