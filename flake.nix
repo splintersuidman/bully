@@ -12,7 +12,7 @@
   outputs = { self, nixpkgs, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        compiler = "ghc9102";
+        compiler = "ghc9103";
         pkgs = nixpkgs.legacyPackages.${system};
         haskellPackages = pkgs.haskell.packages.${compiler};
       in {
