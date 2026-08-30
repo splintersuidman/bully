@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Bully.Types (Bulletin (..), Contribution (..), ContributionFormat (..), Output (..), OutputFormat (..), PdfCompiler (..))
-import Data.Aeson qualified as Aeson
+import Data.Aeson.Encode.Pretty qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -45,4 +45,5 @@ main = do
                 , template = template
                 }
           }
-  BL.writeFile "example/request.txt" $ Aeson.encode bulletin
+  let aesonPrettyConfig = Aeson.defConfig {Aeson.confIndent = Aeson.Spaces 2}
+  BL.writeFile "example/request.txt" $ Aeson.encodePretty' aesonPrettyConfig bulletin

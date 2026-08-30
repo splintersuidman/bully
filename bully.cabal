@@ -116,7 +116,7 @@ executable bully-example
   import:           warnings
   main-is:          Main/Example.hs
   build-depends:
-    , aeson
+    , aeson-pretty
     , base
     , bully
     , bytestring
