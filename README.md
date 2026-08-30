@@ -6,7 +6,7 @@ Automate assembling regular bulletins with contributions from various sources us
 
 ## Usage
 
-Run the server with `cabal run bully-server`.
+Run the server with `nix run github:splintersuidman/bully` if you have Nix with flakes, or with `cabal run bully-server` if you have the repository checked out.
 This will by default listen on port 8080.
 Compilation requests are to be sent to the `/compile` endpoint, with a JSON body.
 
