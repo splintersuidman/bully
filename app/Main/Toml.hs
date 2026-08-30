@@ -2,16 +2,16 @@
 
 module Main where
 
-import           Bully
-import           Bully.Toml
-import           Control.Monad          (when)
-import           Control.Monad.Except   (MonadError (throwError))
-import           Control.Monad.IO.Class (MonadIO (liftIO))
-import           Data.Foldable          (for_)
-import           System.Directory       (setCurrentDirectory)
-import           System.Environment     (getArgs)
-import           System.FilePath        (takeDirectory)
-import qualified Toml
+import Bully
+import Bully.Toml
+import Control.Monad (when)
+import Control.Monad.Except (MonadError (throwError))
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Data.Foldable (for_)
+import System.Directory (setCurrentDirectory)
+import System.Environment (getArgs)
+import System.FilePath (takeDirectory)
+import Toml qualified
 
 -- | Read the bulletin configuration from the given file.
 readBulletinConfig :: FilePath -> Bully (Bulletin FilePath Input)
@@ -23,7 +23,8 @@ main :: IO ()
 main = runBully $ do
   args <- liftIO getArgs
   when (null args) $
-    throwError $ BulletinUsageError "Specify configuration file(s): bulletin <file ...>"
+    throwError $
+      BulletinUsageError "Specify configuration file(s): bulletin <file ...>"
 
   for_ args $ \configFile -> do
     bulletinConfig <- readBulletinConfig configFile

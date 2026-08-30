@@ -2,25 +2,27 @@
 
 module Bully.Toml where
 
-import           Bully
-import           Control.Applicative ((<|>))
-import           Data.Text           (Text)
-import qualified Toml
-import           Toml                (TomlCodec, TomlDecodeError, (.=))
+import Bully
+import Control.Applicative ((<|>))
+import Data.Text (Text)
+import Toml (TomlCodec, TomlDecodeError, (.=))
+import Toml qualified
 
 bulletinCodec :: TomlCodec (Bulletin FilePath Input)
-bulletinCodec = Bulletin
-  <$> Toml.text                             "title"        .= bulletinTitle
-  <*> Toml.day                              "date"         .= bulletinDate
-  <*> Toml.tableMap Toml._KeyText Toml.text "extra"        .= bulletinExtra
-  <*> Toml.list outputCodec                 "output"       .= bulletinOutputs
-  <*> Toml.list contributionCodec           "contribution" .= bulletinContributions
+bulletinCodec =
+  Bulletin
+    <$> Toml.text "title" .= bulletinTitle
+    <*> Toml.day "date" .= bulletinDate
+    <*> Toml.tableMap Toml._KeyText Toml.text "extra" .= bulletinExtra
+    <*> Toml.list outputCodec "output" .= bulletinOutputs
+    <*> Toml.list contributionCodec "contribution" .= bulletinContributions
 
 outputCodec :: TomlCodec (Output FilePath)
-outputCodec = Output
-  <$> Toml.string "file"     .= outputFilename
-  <*> outputFormatCodec      .= outputFormat
-  <*> Toml.string "template" .= outputTemplate
+outputCodec =
+  Output
+    <$> Toml.string "file" .= outputFilename
+    <*> outputFormatCodec .= outputFormat
+    <*> Toml.string "template" .= outputTemplate
 
 matchSourceFile :: Source -> Maybe FilePath
 matchSourceFile = \case
@@ -43,23 +45,25 @@ matchSourceGoogleDrive = \case
   _ -> Nothing
 
 sourceCodec :: TomlCodec Source
-sourceCodec
-   =  Toml.dimatch matchSourceFile SourceFile (Toml.string "file")
-  <|> Toml.dimatch matchSourceUrl SourceUrl (Toml.text "url")
-  <|> Toml.dimatch matchSourceGoogleDocs SourceGoogleDocs (Toml.text "google-docs")
-  <|> Toml.dimatch matchSourceGoogleDrive SourceGoogleDrive (Toml.text "google-drive")
+sourceCodec =
+  Toml.dimatch matchSourceFile SourceFile (Toml.string "file")
+    <|> Toml.dimatch matchSourceUrl SourceUrl (Toml.text "url")
+    <|> Toml.dimatch matchSourceGoogleDocs SourceGoogleDocs (Toml.text "google-docs")
+    <|> Toml.dimatch matchSourceGoogleDrive SourceGoogleDrive (Toml.text "google-drive")
 
 contributionCodec :: TomlCodec (Contribution Input)
-contributionCodec = Contribution
-  <$> Toml.text   "author" .= contributionAuthor
-  <*> Toml.text   "title"  .= contributionTitle
-  <*> Toml.day    "date"   .= contributionDate
-  <*> inputCodec           .= contributionDocument
+contributionCodec =
+  Contribution
+    <$> Toml.text "author" .= contributionAuthor
+    <*> Toml.text "title" .= contributionTitle
+    <*> Toml.day "date" .= contributionDate
+    <*> inputCodec .= contributionDocument
 
 inputCodec :: TomlCodec Input
-inputCodec = Input
-  <$> sourceCodec                          .= inputSource
-  <*> Toml.dioptional (Toml.text "format") .= inputFormat
+inputCodec =
+  Input
+    <$> sourceCodec .= inputSource
+    <*> Toml.dioptional (Toml.text "format") .= inputFormat
 
 matchOutputFormat :: OutputFormat -> Maybe Text
 matchOutputFormat = \case
@@ -77,13 +81,14 @@ matchOutputFormatUnspecified = \case
   _ -> Nothing
 
 outputFormatCodec :: TomlCodec OutputFormat
-outputFormatCodec
-   =  Toml.dimatch matchOutputFormatPdf OutputFormatPdf pdf
-  <|> Toml.dimatch matchOutputFormat OutputFormat otherFormat
-  <|> pure OutputFormatUnspecified
-  where
-    pdf = Toml.hardcoded "pdf" Toml._Text "format" *> Toml.text "compiler"
-    validateOtherFormat format = if format == "pdf"
+outputFormatCodec =
+  Toml.dimatch matchOutputFormatPdf OutputFormatPdf pdf
+    <|> Toml.dimatch matchOutputFormat OutputFormat otherFormat
+    <|> pure OutputFormatUnspecified
+ where
+  pdf = Toml.hardcoded "pdf" Toml._Text "format" *> Toml.text "compiler"
+  validateOtherFormat format =
+    if format == "pdf"
       then Left "PDF output format should be accompanied by compiler option"
       else Right format
-    otherFormat = Toml.validate validateOtherFormat Toml._Text "format"
+  otherFormat = Toml.validate validateOtherFormat Toml._Text "format"

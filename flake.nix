@@ -26,6 +26,7 @@
               ++ (with haskellPackages; [
                 cabal2nix
                 haskell-language-server
+                fourmolu
               ]);
           });
       });

@@ -2,42 +2,44 @@
 
 module Main where
 
-import           Bully
-import           Bully.Toml
-import           Control.Monad          (when)
-import           Control.Monad.Except   (MonadError (throwError))
-import           Control.Monad.IO.Class (MonadIO (liftIO))
-import           Data.ByteString        (ByteString)
-import qualified Data.ByteString.Char8  as BS8
-import qualified Data.ByteString.Lazy   as BL
-import           Data.Csv               ((.:))
-import qualified Data.Csv               as Csv
-import           Data.Foldable          (for_)
-import           Data.Text              (Text)
-import qualified Data.Text.Encoding     as Text
-import qualified Data.Time              as Time
-import           Data.Vector            (Vector)
-import qualified Data.Vector            as Vector
-import           System.Directory       (setCurrentDirectory)
-import           System.Environment     (getArgs)
-import           System.FilePath        (takeDirectory)
-import qualified Text.Pandoc.UTF8       as Utf8
-import qualified Toml
-import           Toml                   (TomlCodec, (.=))
+import Bully
+import Bully.Toml
+import Control.Monad (when)
+import Control.Monad.Except (MonadError (throwError))
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Data.ByteString (ByteString)
+import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Lazy qualified as BL
+import Data.Csv ((.:))
+import Data.Csv qualified as Csv
+import Data.Foldable (for_)
+import Data.Text (Text)
+import Data.Text.Encoding qualified as Text
+import Data.Time qualified as Time
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
+import System.Directory (setCurrentDirectory)
+import System.Environment (getArgs)
+import System.FilePath (takeDirectory)
+import Text.Pandoc.UTF8 qualified as Utf8
+import Toml (TomlCodec, (.=))
+import Toml qualified
 
 data Form = Form
   { formAuthorLabel :: !ByteString
-  , formTitleLabel  :: !ByteString
-  , formDateLabel   :: !ByteString
+  , formTitleLabel :: !ByteString
+  , formDateLabel :: !ByteString
   , formSourceLabel :: !ByteString
-  } deriving (Show, Eq)
+  }
+  deriving (Show, Eq)
 
 formCodec :: TomlCodec Form
-formCodec = Form
-  <$> Toml.byteString "author" .= formAuthorLabel
-  <*> Toml.byteString "title"  .= formTitleLabel
-  <*> Toml.byteString "date"   .= formDateLabel
-  <*> Toml.byteString "source" .= formSourceLabel
+formCodec =
+  Form
+    <$> Toml.byteString "author" .= formAuthorLabel
+    <*> Toml.byteString "title" .= formTitleLabel
+    <*> Toml.byteString "date" .= formDateLabel
+    <*> Toml.byteString "source" .= formSourceLabel
 
 newtype GoogleSheetsDay = GoogleSheetsDay Time.Day
 
@@ -57,12 +59,13 @@ formParser form record = do
   title <- record .: formTitleLabel form
   GoogleSheetsDay date <- record .: formDateLabel form
   GoogleSheetsSource source <- record .: formSourceLabel form
-  pure $ Contribution
-    { contributionAuthor = author
-    , contributionTitle = title
-    , contributionDate = date
-    , contributionDocument = Input { inputSource = source, inputFormat = Nothing }
-    }
+  pure $
+    Contribution
+      { contributionAuthor = author
+      , contributionTitle = title
+      , contributionDate = date
+      , contributionDocument = Input {inputSource = source, inputFormat = Nothing}
+      }
 
 decodeForm :: Form -> BL.ByteString -> Either String (Vector (Contribution Input))
 decodeForm form = fmap snd . Csv.decodeByNameWithP (formParser form) Csv.defaultDecodeOptions
@@ -84,15 +87,17 @@ readGoogleSheetContributions form sheet = do
 
 data Config = Config
   { configBulletin :: !(Bulletin FilePath Input)
-  , configForm     :: !Form
-  , configSheet    :: !GoogleSheet
-  } deriving (Show)
+  , configForm :: !Form
+  , configSheet :: !GoogleSheet
+  }
+  deriving (Show)
 
 configCodec :: TomlCodec Config
-configCodec = Config
-  <$> bulletinCodec                .= configBulletin
-  <*> Toml.table formCodec "form"  .= configForm
-  <*> googleSheetCodec     "sheet" .= configSheet
+configCodec =
+  Config
+    <$> bulletinCodec .= configBulletin
+    <*> Toml.table formCodec "form" .= configForm
+    <*> googleSheetCodec "sheet" .= configSheet
 
 readConfig :: FilePath -> Bully Config
 readConfig filename = do
@@ -103,15 +108,17 @@ readBulletinConfig :: Config -> Bully (Bulletin FilePath Input)
 readBulletinConfig config = do
   contributions <- readGoogleSheetContributions (configForm config) (configSheet config)
   let bulletin = configBulletin config
-  pure $ bulletin
-    { bulletinContributions = bulletinContributions bulletin <> contributions
-    }
+  pure $
+    bulletin
+      { bulletinContributions = bulletinContributions bulletin <> contributions
+      }
 
 main :: IO ()
 main = runBully $ do
   args <- liftIO getArgs
   when (null args) $
-    throwError $ BulletinUsageError "Specify configuration file(s): bulletin-google-form <file ...>"
+    throwError $
+      BulletinUsageError "Specify configuration file(s): bulletin-google-form <file ...>"
 
   for_ args $ \configFile -> do
     config <- readConfig configFile
