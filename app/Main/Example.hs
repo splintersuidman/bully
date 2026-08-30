@@ -46,4 +46,4 @@ main = do
                 }
           }
   let aesonPrettyConfig = Aeson.defConfig {Aeson.confIndent = Aeson.Spaces 2}
-  BL.writeFile "example/request.txt" $ Aeson.encodePretty' aesonPrettyConfig bulletin
+  BL.writeFile "example/request.json" $ Aeson.encodePretty' aesonPrettyConfig bulletin
