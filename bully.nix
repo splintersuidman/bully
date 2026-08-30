@@ -1,6 +1,6 @@
-{ mkDerivation, base, bytestring, cassava, containers, directory
-, filepath, lens, lib, mtl, pandoc, pandoc-types, text, time
-, tomland, unordered-containers, wreq
+{ mkDerivation, aeson, base, base64, bytestring, containers
+, exceptions, lib, mtl, pandoc, pandoc-types, servant-server, text
+, time, vector, wai, warp, witch
 }:
 mkDerivation {
   pname = "bully";
@@ -9,12 +9,10 @@ mkDerivation {
   isLibrary = true;
   isExecutable = true;
   libraryHaskellDepends = [
-    base bytestring cassava containers directory filepath lens mtl
-    pandoc pandoc-types text time tomland unordered-containers wreq
+    aeson base base64 bytestring containers exceptions mtl pandoc
+    pandoc-types servant-server text time vector wai warp witch
   ];
-  executableHaskellDepends = [
-    base bytestring cassava containers directory filepath lens mtl
-    pandoc pandoc-types text time tomland unordered-containers wreq
-  ];
+  executableHaskellDepends = [ base ];
   license = lib.meta.getLicenseFromSpdxId "GPL-3.0-or-later";
+  mainProgram = "bully-server";
 }

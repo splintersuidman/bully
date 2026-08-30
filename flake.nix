@@ -27,6 +27,7 @@
                 cabal2nix
                 haskell-language-server
                 fourmolu
+                cabal-fmt
               ]);
           });
       });
