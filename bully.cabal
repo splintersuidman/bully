@@ -111,3 +111,17 @@ executable bully-server
 
   -- Base language which the package is written in.
   default-language: GHC2024
+
+executable bully-example
+  import:           warnings
+  main-is:          Main/Example.hs
+  build-depends:
+    , aeson
+    , base
+    , bully
+    , bytestring
+    , text
+    , vector
+
+  hs-source-dirs:   app
+  default-language: GHC2024
