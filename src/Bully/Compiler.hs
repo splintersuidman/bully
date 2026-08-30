@@ -10,13 +10,11 @@ module Bully.Compiler (
 import Bully.Types (Bulletin (..), Contribution (..), Output (..), OutputFormat (..), PdfCompiler (..))
 import Control.Exception (Exception (..), throwIO)
 import Control.Monad.Catch (MonadThrow, throwM)
-import Control.Monad.Error.Class (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
 import Data.Semigroup (Min (..))
 import Data.Text (Text)
-import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TL
@@ -32,7 +30,6 @@ import Text.Pandoc.PDF qualified as Pandoc
 import Text.Pandoc.Templates (Template)
 import Text.Pandoc.Templates qualified as Templates
 import Text.Pandoc.Transforms qualified as Pandoc
-import Text.Pandoc.UTF8 qualified as Pandoc
 import Text.Pandoc.Walk qualified as Pandoc
 import Witch (From (..), into, via)
 
@@ -172,8 +169,9 @@ readPandoc reader extensions doc = do
   document <- liftPandocIO $ case reader of
     Pandoc.ByteStringReader r -> r readerOptions input
     Pandoc.TextReader r -> r readerOptions $ TL.toStrict $ TL.decodeUtf8 input
-  -- Discard meta values, because we set these manually for the compiled document.
-  case document of
+  let processDocument = correctHeaderLevels
+  case processDocument document of
+    -- Discard meta values, because we set these manually for the compiled document.
     Pandoc _meta blocks -> pure $ P.fromList blocks
 
 -- | Obtain the minimal header level from the document, if any headers are present.
@@ -189,12 +187,3 @@ correctHeaderLevels :: Pandoc -> Pandoc
 correctHeaderLevels p = case minHeaderLevel p of
   Just l | l == 1 -> Pandoc.headerShift 1 p
   _ -> p
-
--- | Add header to a contribution, consisting of a pagebreak, a header with the title, and the
--- author set in italic.
-addContributionHeader :: Contribution Pandoc -> Pandoc
-addContributionHeader contribution = case contribution.document of
-  Pandoc meta blocks -> Pandoc meta $ [Header 1 P.nullAttr title, Para author] <> blocks
- where
-  title = P.toList $ P.text contribution.title
-  author = P.toList $ P.emph $ P.text contribution.author
