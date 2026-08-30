@@ -27,7 +27,6 @@ import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Base64 qualified as Text.Base64
 import Data.Time qualified as Time
 import Data.Vector (Vector)
-import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 import Text.Pandoc.Builder qualified as Pandoc
 import Witch (From (..), into)
