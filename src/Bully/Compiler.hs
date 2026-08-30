@@ -5,6 +5,7 @@ module Bully.Compiler (
   Compiler,
   runCompiler,
   compile,
+  ContentDisposition (..),
 ) where
 
 import Bully.Types (Bulletin (..), Contribution (..), Output (..), OutputFormat (..), PdfCompiler (..))
@@ -14,7 +15,9 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
 import Data.Semigroup (Min (..))
+import Data.String (IsString)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Encoding qualified as TL
@@ -58,21 +61,50 @@ runCompiler (Compiler action) =
 liftPandocIO :: PandocIO a -> Compiler a
 liftPandocIO = Compiler
 
--- | Compile a 'Bulletin' and return the output.
-compile :: Bulletin Text ByteString -> Compiler ByteString
-compile bulletin = readContributions bulletin >>= readOutput >>= compileBulletin
+newtype ContentDisposition = ContentDisposition Text
+  deriving newtype (IsString)
 
-compileBulletin :: Bulletin (Template Text) Blocks -> Compiler ByteString
+makeContentDisposition :: Text -> FileExtension -> ContentDisposition
+makeContentDisposition title (FileExtension extension) =
+  ContentDisposition $
+    "filename=\""
+      <> Text.replace "\"" "\\\"" title
+      <> "."
+      <> extension
+      <> "\""
+
+newtype FileExtension = FileExtension Text
+  deriving newtype (IsString)
+
+instance From Pandoc.FlavoredFormat FileExtension where
+  from format = case Pandoc.formatName format of
+    "html" -> "html"
+    "latex" -> "tex"
+    "markdown" -> "md"
+    "odt" -> "odt"
+    "org" -> "org"
+    "pdf" -> "pdf"
+    -- TODO
+    _ -> "txt"
+
+-- | Compile a 'Bulletin' and return the output.
+compile :: Bulletin Text ByteString -> Compiler (ContentDisposition, ByteString)
+compile bulletin = do
+  (extension, result) <- readContributions bulletin >>= readOutput >>= compileBulletin
+  pure (makeContentDisposition bulletin.title extension, result)
+
+compileBulletin :: Bulletin (Template Text) Blocks -> Compiler (FileExtension, ByteString)
 compileBulletin bulletin =
   compilePandoc bulletin.output (makeBulletinDocument bulletin)
 
-compilePandoc :: Output (Template Text) -> Pandoc -> Compiler ByteString
+compilePandoc :: Output (Template Text) -> Pandoc -> Compiler (FileExtension, ByteString)
 compilePandoc output document =
   case output.format of
-    OutputFormatPdf pdfCompiler -> compilePandocPdf output.template pdfCompiler document
+    OutputFormatPdf pdfCompiler ->
+      ("pdf",) <$> compilePandocPdf output.template pdfCompiler document
     OutputFormatOther format -> do
       flavoredFormat <- liftPandocIO $ Pandoc.parseFlavoredFormat format
-      compilePandocOther output.template flavoredFormat document
+      (from flavoredFormat,) <$> compilePandocOther output.template flavoredFormat document
 
 compilePandocPdf :: Template Text -> PdfCompiler -> Pandoc -> Compiler ByteString
 compilePandocPdf template pdfCompiler document = do

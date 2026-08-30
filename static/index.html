@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulletin Compiler</title>
+    <!-- HTMX included for potential future server-side extensions, though serialization is handled via JS here -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #333; }
+        .card { border: 1px solid #ccc; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 8px; background: #f9f9f9; }
+        .row { margin-bottom: 1rem; display: flex; flex-direction: column; }
+        .row label { font-weight: bold; margin-bottom: 0.25rem; }
+        input, select { padding: 0.5rem; border: 1px solid #aaa; border-radius: 4px; }
+        button { padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button.danger { background: #dc3545; }
+        button.danger:hover { background: #a71d2a; }
+        h2 { margin-top: 0; }
+        hr { border: 0; border-top: 1px solid #ccc; margin: 1.5rem 0; }
+    </style>
+</head>
+<body>
+
+    <h1>Bulletin Compiler</h1>
+
+    <form id="compile-form">
+        <!-- BULLETIN INFO -->
+        <div class="card">
+            <h2>Bulletin Info</h2>
+            <div class="row">
+                <label>Title</label>
+                <input type="text" id="bulletin-title" required>
+            </div>
+            <div class="row">
+                <label>Date</label>
+                <input type="date" id="bulletin-date" required>
+            </div>
+        </div>
+
+        <!-- OUTPUT SETTINGS -->
+        <div class="card">
+            <h2>Output Settings</h2>
+            <div class="row">
+                <label>Output Type</label>
+                <select id="output-type" onchange="toggleOutputType()" required>
+                    <option value="pdf">PDF</option>
+                    <option value="format">Other Format</option>
+                </select>
+            </div>
+            <div class="row" id="compiler-row">
+                <label>Compiler (e.g., typst, pdflatex)</label>
+                <input type="text" id="output-compiler">
+            </div>
+            <div class="row" id="format-row" style="display: none;">
+                <label>Pandoc Format</label>
+                <input type="text" id="output-format">
+            </div>
+            <div class="row">
+                <label>Template Document</label>
+                <input type="file" id="output-template" required>
+            </div>
+        </div>
+
+        <!-- CONTRIBUTIONS -->
+        <div class="card">
+            <h2>Contributions</h2>
+            <div id="contributions-container"></div>
+            <button type="button" onclick="addContribution()">+ Add Contribution</button>
+        </div>
+
+        <button type="submit" style="font-size: 1.2rem; width: 100%; padding: 1rem;">Compile Bulletin</button>
+    </form>
+
+    <!-- Hidden Template for Contributions -->
+    <template id="contribution-template">
+        <div class="card contribution-item" style="background: #fff; border: 1px dashed #999;">
+            <div class="row">
+                <label>Author</label>
+                <input type="text" class="contrib-author" required>
+            </div>
+            <div class="row">
+                <label>Title</label>
+                <input type="text" class="contrib-title" required>
+            </div>
+            <div class="row">
+                <label>Date</label>
+                <input type="date" class="contrib-date" required>
+            </div>
+            <div class="row">
+                <label>Pandoc Format</label>
+                <input type="text" class="contrib-format" required>
+            </div>
+            <div class="row">
+                <label>Document File</label>
+                <input type="file" class="contrib-file" required>
+            </div>
+            <button type="button" class="danger" onclick="this.parentElement.remove()">Remove Contribution</button>
+        </div>
+    </template>
+
+    <script>
+        // Toggle Output fields between PDF compiler and Pandoc format
+        function toggleOutputType() {
+            const type = document.getElementById('output-type').value;
+            if (type === 'pdf') {
+                document.getElementById('compiler-row').style.display = 'flex';
+                document.getElementById('output-compiler').required = true;
+                document.getElementById('format-row').style.display = 'none';
+                document.getElementById('output-format').required = false;
+            } else {
+                document.getElementById('compiler-row').style.display = 'none';
+                document.getElementById('output-compiler').required = false;
+                document.getElementById('format-row').style.display = 'flex';
+                document.getElementById('output-format').required = true;
+            }
+        }
+
+        // Add a new contribution block using the HTML template
+        function addContribution() {
+            const template = document.getElementById('contribution-template');
+            const clone = template.content.cloneNode(true);
+            document.getElementById('contributions-container').appendChild(clone);
+        }
+
+        // Helper to convert a File object to a Base64 string
+        const fileToBase64 = (file) => new Promise((resolve, reject) => {
+            if (!file) return resolve(null);
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result.split(',')[1]); // Strip data URL scheme
+            reader.onerror = error => reject(error);
+        });
+
+        // Initialize with one empty contribution
+        addContribution();
+        toggleOutputType();
+
+        // Handle form submission and JSON construction
+        document.getElementById('compile-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Compiling...';
+
+            try {
+                // 1. Construct Output Object
+                const outputType = document.getElementById('output-type').value;
+                const templateFile = document.getElementById('output-template').files[0];
+
+                const outputFormat = outputType === 'pdf'
+                    ? { tag: "pdf", compiler: document.getElementById('output-compiler').value }
+                    : { tag: "format", format: document.getElementById('output-format').value };
+
+                const output = {
+                    format: outputFormat,
+                    template: await fileToBase64(templateFile)
+                };
+
+                // 2. Construct Contributions Array
+                const contributionNodes = document.querySelectorAll('.contribution-item');
+                const contributions = [];
+
+                for (let node of contributionNodes) {
+                    const file = node.querySelector('.contrib-file').files[0];
+                    contributions.push({
+                        author: node.querySelector('.contrib-author').value,
+                        title: node.querySelector('.contrib-title').value,
+                        date: node.querySelector('.contrib-date').value,
+                        format: node.querySelector('.contrib-format').value,
+                        document: await fileToBase64(file)
+                    });
+                }
+
+                // 3. Construct Final Bulletin Payload
+                const payload = {
+                    title: document.getElementById('bulletin-title').value,
+                    date: document.getElementById('bulletin-date').value,
+                    contributions: contributions,
+                    output: output,
+                    extra: {}
+                };
+
+                // 4. Send API Request & Download Response
+                const response = await fetch('/compile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`API returned status: ${response.status}`);
+
+                // Extract filename from Content-Disposition header
+                const disposition = response.headers.get('Content-Disposition');
+                let filename = `bulletin_${payload.date}.pdf`; // Fallback name
+
+                if (disposition && disposition.indexOf('filename') !== -1) {
+                    const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+                    const matches = filenameRegex.exec(disposition);
+                    if (matches != null && matches[1]) {
+                        filename = matches[1].replace(/['"]/g, ''); // Remove quotes if present
+                    }
+                }
+
+                // Handle the returned octet-stream as a download
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = filename;
+
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(downloadUrl);
+
+            } catch (err) {
+                console.error(err);
+                alert('Compilation failed. Check console for details.');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'Compile Bulletin';
+            }
+        });
+    </script>
+</body>
+</html>
