@@ -11,7 +11,7 @@ WORKDIR /app
 COPY . .
 
 # Build the flake's default package
-RUN nix build .#bully-server
+RUN nix build .#default
 
 # Run the binary generated in the ./result symlink
 CMD ["./result/bin/bully-server"]
